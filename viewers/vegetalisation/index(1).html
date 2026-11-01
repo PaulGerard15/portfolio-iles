@@ -1,0 +1,443 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Végétaliser les quartiers prioritaires — Marseille</title>
+<!-- Livrables SIG (GeoPackage Lambert-93 → data.json WGS84) posés sur les tuiles Google photoréalistes.
+     Jeton Cesium ion : ../cesium-config.js -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/cesium@1.146.0/Build/Cesium/Widgets/widgets.css">
+<script src="https://cdn.jsdelivr.net/npm/cesium@1.146.0/Build/Cesium/Cesium.js"></script>
+<script src="../cesium-config.js"></script>
+<style>
+  @font-face { font-family: Montserrat; font-weight: 400; font-display: swap; src: url(../fonts/montserrat-latin-400-normal.woff2) format("woff2"); }
+  @font-face { font-family: Montserrat; font-weight: 600; font-display: swap; src: url(../fonts/montserrat-latin-600-normal.woff2) format("woff2"); }
+  @font-face { font-family: Montserrat; font-weight: 700; font-display: swap; src: url(../fonts/montserrat-latin-700-normal.woff2) format("woff2"); }
+  html, body, #cesiumContainer { width: 100%; height: 100%; margin: 0; overflow: hidden; background: #151a21; }
+</style>
+</head>
+<body>
+<style>
+  .glass {
+    position: absolute; z-index: 5; font-family: Montserrat, system-ui, sans-serif; color: #f2f4f6;
+    background: rgba(28, 31, 36, 0.76); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    border: 1px solid #000; border-radius: 6px; box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
+  }
+  #intro { top: 14px; left: 14px; width: 310px; padding: 16px 14px 12px; max-height: calc(100% - 60px); overflow: auto; }
+  #intro h1 { margin: 0 2px; font-size: 16px; font-weight: 700; line-height: 1.3; }
+  #intro p { margin: 6px 2px 0; font-size: 12px; line-height: 1.5; color: #c4cad1; }
+  .chain { display: flex; flex-wrap: wrap; gap: 4px; margin: 10px 2px 4px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: #aeb6bf; }
+  .chain span + span::before { content: "→"; margin-right: 4px; color: #6c757f; }
+  .head { display: flex; justify-content: space-between; align-items: baseline; margin: 12px 2px 4px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.12); }
+  .head small { font-size: 10.5px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #9aa3ad; }
+  .row { display: flex; align-items: center; gap: 2px; border-radius: 4px; border: 1px solid transparent; }
+  .row.focus { background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.18); }
+  .row.off .pick { opacity: 0.4; }
+  .pick { flex: 1; display: flex; align-items: center; gap: 10px; min-width: 0; padding: 7px 6px; border: 0; border-radius: 4px; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+  .pick:hover { background: rgba(255,255,255,0.06); }
+  .pick .t { display: grid; line-height: 1.25; min-width: 0; }
+  .pick b { font-size: 13px; font-weight: 600; }
+  .pick small { font-size: 11.5px; color: #aeb6bf; }
+  .eye { flex: none; width: 26px; height: 26px; margin-left: 2px; border: 1px solid rgba(255,255,255,0.18); border-radius: 4px; background: transparent; cursor: pointer; position: relative; }
+  .eye::after { content: ""; position: absolute; inset: 6px; border-radius: 2px; background: #f2f4f6; opacity: 0.85; }
+  .eye[aria-pressed="false"]::after { background: transparent; border: 1.5px solid #8d96a0; inset: 7px; }
+  .sw { flex: none; width: 14px; height: 14px; border-radius: 3px; background: var(--c); border: 1px solid rgba(0,0,0,0.6); }
+  .sw[data-kind="Ligne"] { height: 4px; border-radius: 2px; }
+  .sw[data-context] { background: transparent; border: 2px solid var(--c); }
+  #overview { margin-top: 10px; width: 100%; padding: 8px; border: 1px solid #000; border-radius: 4px; background: rgba(255,255,255,0.08);
+    color: #f2f4f6; font: 600 12px Montserrat, sans-serif; cursor: pointer; }
+  #overview:hover { background: rgba(255,255,255,0.14); }
+  .warn { margin: 0 2px 10px; padding: 8px 10px; border-radius: 4px; background: #5a2a22; color: #ffd9cf; font-size: 12px; line-height: 1.45; }
+  .hint { margin: 8px 2px 0; font-size: 11px; color: #8d96a0; }
+  #card { top: 14px; right: 14px; width: 330px; padding: 16px; max-height: calc(100% - 60px); overflow: auto; }
+  #card[hidden], #tip[hidden] { display: none; }
+  #card header { display: flex; justify-content: space-between; align-items: start; gap: 10px; }
+  #cTitle { margin: 0; font-size: 17px; font-weight: 700; line-height: 1.25; }
+  #cType { display: flex; align-items: center; gap: 8px; margin-top: 6px; font-size: 12px; font-weight: 600; color: #c4cad1; }
+  #close { flex: none; width: 28px; height: 28px; border: 1px solid #000; border-radius: 4px; background: rgba(255,255,255,0.08);
+    color: #f2f4f6; font: 600 16px/1 Montserrat, sans-serif; cursor: pointer; }
+  #cFields { display: grid; grid-template-columns: 118px 1fr; gap: 9px 12px; margin: 14px 0 0; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.12); }
+  #cFields dt { font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #9aa3ad; padding-top: 2px; }
+  #cFields dd { margin: 0; font-size: 13px; line-height: 1.4; overflow-wrap: anywhere; }
+  #cFields dd.empty { color: #8d96a0; font-style: italic; }
+  #card footer { margin-top: 14px; font-size: 11px; color: #8d96a0; }
+  #tip { position: absolute; top: 0; left: 0; z-index: 6; pointer-events: none; padding: 6px 9px; display: grid; font-size: 12px; line-height: 1.35; }
+  #tip span { color: #c4cad1; }
+  @media (max-width: 720px) {
+    #intro { width: auto; right: 14px; max-height: 42vh; }
+    #intro p, .chain, .hint { display: none; }
+    #card { top: auto; bottom: 28px; left: 14px; right: 14px; width: auto; max-height: 46vh; }
+  }
+</style>
+<div id="cesiumContainer"></div>
+
+<section id="intro" class="glass" aria-label="Présentation">
+  <h1>Végétaliser les quartiers prioritaires de Marseille</h1>
+  <p>Sites identifiés pour la végétalisation et continuités écologiques, posés sur la ville en 3D.</p>
+  <div class="chain"><span>PostgreSQL</span><span>QGIS</span><span>Cesium</span></div>
+  <div class="head"><small>Contexte</small></div>
+  <div id="context"></div>
+  <div class="head"><small id="count">Livrables</small></div>
+  <div id="legend"></div>
+  <button id="overview" type="button">Vue d'ensemble</button>
+  <p class="hint">Clic : fiche · double-clic : zoom · Échap : fermer</p>
+</section>
+
+<aside id="card" class="glass" hidden aria-live="polite">
+  <header>
+    <div><h2 id="cTitle"></h2><div id="cType"></div></div>
+    <button id="close" type="button" aria-label="Fermer la fiche">×</button>
+  </header>
+  <dl id="cFields"></dl>
+  <footer>Paul Gerard · Lambert-93 reprojeté en WGS84 · fond 3D © Google</footer>
+</aside>
+<div id="tip" class="glass" hidden></div>
+
+<script type="module">
+
+// Végétaliser les quartiers prioritaires de Marseille — livrables SIG posés sur la ville en 3D (Paul Gerard)
+// Source : GeoPackage QGIS (Lambert-93), reprojeté en WGS84, géométries simplifiées à 0,3 m pour le web.
+// Rendu : une primitive « posée au sol » par couche (GroundPrimitive) pour rester fluide avec ~1 200 objets.
+
+// Jeton : viewers/cesium-config.js (commun aux vues Cesium du portfolio)
+const ION_TOKEN = window.CESIUM_ION_TOKEN || "";
+if (ION_TOKEN) Cesium.Ion.defaultAccessToken = ION_TOKEN;
+
+const DATA = await (await fetch("data.json")).json();
+
+// ------------------------------------------------------------------ Couches
+const LAYERS = [
+  { id: "qpv", name: "Quartiers prioritaires (QPV)", item: "QPV", color: "#ffffff", context: true, idField: "id_qpv", titleField: "nom_quartier" },
+  { id: "arbres", name: "Plantation d'arbres", item: "Site arbres", color: "#8be08f", idField: "id_arbres", areaField: "surf_m2" },
+  { id: "micro_forets", name: "Micro-forêts", item: "Micro-forêt", color: "#22b5a0", idField: "id_micro_forets", areaField: "surf_m2" },
+  { id: "jard_partage", name: "Jardins partagés", item: "Jardin partagé", color: "#f08a4b", idField: "id_jard_partage", areaField: "surf_m2" },
+  { id: "prairies_fleuries", name: "Prairies fleuries", item: "Prairie fleurie", color: "#f5c84c", idField: "id_prairies_fleuries", areaField: "surface_m2" },
+  { id: "conti_eco", name: "Continuités écologiques", item: "Continuité", color: "#5cc8ff", idField: "id_conti_eco", lengthField: "longueur_m" },
+];
+
+// ------------------------------------------------------------------ Champs de la fiche
+const nf = (d) => (v) => Number(v).toLocaleString("fr-FR", { maximumFractionDigits: d });
+const m2 = (v) => `${nf(1)(v)} m²`;
+const m = (v) => `${nf(1)(v)} m`;
+const CAP = { haie: "Haie", "voie ferree": "Voie ferrée", ripisylve: "Ripisylve", lisiere: "Lisière", corridor: "Corridor", isole: "Isolé", ordinaire: "Ordinaire", prioritaire: "Prioritaire" };
+const OWNERS = { "COMMUNE DE MARSEILLE": "Commune de Marseille", "METROPOLE D'AIX-MARSEILLE-PROVENCE": "Métropole d'Aix-Marseille-Provence" };
+const OCS_CS = { "CS2.2.1": "Formations herbacées" };
+const OCS_US = { "US4.1.1": "Réseaux routiers", "US4.3": "Réseaux d'utilité publique", "US6.3": "Sans usage" };
+const FIELDS = {
+  id_qpv: ["Identifiant"], id_arbres: ["Identifiant"], id_micro_forets: ["Identifiant"], id_jard_partage: ["Identifiant"],
+  id_prairies_fleuries: ["Identifiant"], id_conti_eco: ["Identifiant"],
+  nom_quartier: ["Quartier"], code_quartier: ["Code QPV"],
+  taux_pauvrete_prct: ["Taux de pauvreté", (v) => `${nf(1)(v)} %`],
+  iuhi_mean: ["Îlot de chaleur (iUHI moyen)", nf(2)],
+  hvi_mean: ["Vulnérabilité chaleur (HVI moyen)", nf(2)],
+  age_perc_mean: ["Indicateur âge (moyenne)", nf(2)],
+  pop_den_mean: ["Densité de population (moyenne)", nf(0)],
+  score_priorite: ["Score de priorité", nf(3)],
+  code_parcelle: ["Parcelle cadastrale"],
+  proprietaire: ["Propriétaire", (v) => OWNERS[v] ?? v],
+  surf_m2: ["Surface", m2], surface_m2: ["Surface", m2],
+  largeur_m: ["Largeur", m], longueur_m: ["Longueur", m],
+  zonage_plu: ["Zonage PLUi", (v) => String(v).replace(/\s+/g, " ")],
+  priorite_plu: ["Priorité PLUi", (v) => CAP[v] ?? v],
+  code_cs: ["Couverture du sol", (v) => (OCS_CS[v] ? `${v} · ${OCS_CS[v]}` : v)],
+  code_us: ["Usage du sol", (v) => (OCS_US[v] ? `${v} · ${OCS_US[v]}` : v)],
+  appartient_ville: ["Propriété Ville", (v) => (v === 1 || v === true ? "Oui" : v === 0 || v === false ? "Non" : v)],
+  nb_reservoirs: ["Réservoirs reliés", nf(0)],
+  type_corridor: ["Type", (v) => CAP[v] ?? v],
+  statut_corridor: ["Statut", (v) => CAP[v] ?? v],
+  date_identif: ["Date d'identification"],
+};
+const EMPTY = "Non renseigné";
+
+// ------------------------------------------------------------------ Scène
+const viewer = new Cesium.Viewer("cesiumContainer", {
+  baseLayer: false, geocoder: false, homeButton: false, sceneModePicker: false, baseLayerPicker: false,
+  navigationHelpButton: false, animation: false, timeline: false, fullscreenButton: false,
+  infoBox: false, selectionIndicator: false,
+});
+const scene = viewer.scene;
+// Rendu à la demande : rien n'est recalculé quand la vue est immobile (portables peu puissants)
+scene.requestRenderMode = true;
+scene.maximumRenderTimeChange = Infinity;
+scene.globe.show = false;
+scene.fog.enabled = false;
+viewer.cesiumWidget.creditContainer.style.opacity = "0.75";
+let googleOK = true;
+try {
+  scene.primitives.add(await Cesium.createGooglePhotorealistic3DTileset({ onlyUsingWithGoogleGeocoder: true }));
+} catch (e) {
+  // Ville 3D indisponible : repli sur l'orthophoto IGN (sans jeton), données posées à plat
+  googleOK = false;
+  scene.globe.show = true;
+  scene.globe.baseColor = Cesium.Color.fromCssColorString("#1d2328");
+  const ortho = viewer.imageryLayers.addImageryProvider(new Cesium.WebMapTileServiceImageryProvider({
+    url: "https://data.geopf.fr/wmts", layer: "ORTHOIMAGERY.ORTHOPHOTOS", style: "normal", format: "image/jpeg",
+    tileMatrixSetID: "PM", maximumLevel: 19, credit: new Cesium.Credit("Orthophoto © IGN"),
+  }));
+  ortho.brightness = 0.8;
+  ortho.saturation = 0.55;
+  const n = document.createElement("p");
+  n.className = "warn";
+  console.error("Tuiles Google :", e);
+  const code = e && e.statusCode;
+  const why = { 401: "jeton refusé", 403: "jeton refusé pour ce site (Allowed URLs)", 404: "asset Google absent du jeton", 429: "quota dépassé" }[code];
+  n.textContent = `Ville 3D Google indisponible${code ? ` (erreur ${code}${why ? " : " + why : ""})` : ""}. Affichage sur orthophoto IGN.`;
+  document.getElementById("intro").prepend(n);
+}
+
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+const ON_TILES = Cesium.ClassificationType.CESIUM_3D_TILE;
+
+// Décodage des coordonnées (entiers en micro-degrés, codés en différences)
+function decode(arr) {
+  const out = new Array(arr.length);
+  let x = 0, y = 0;
+  for (let i = 0; i < arr.length; i += 2) { x += arr[i]; y += arr[i + 1]; out[i] = x / 1e6; out[i + 1] = y / 1e6; }
+  return out;
+}
+// Hauteur d'affichage en repli (globe plat) : contexte dessous, polygones, puis lignes au-dessus
+const LIFT = { fill: 1.5, edge: 2, line: 3 };
+function toPositions(flat, kind) {
+  if (googleOK) return Cesium.Cartesian3.fromDegreesArray(flat);
+  const h = [];
+  for (let i = 0; i < flat.length; i += 2) h.push(flat[i], flat[i + 1], LIFT[kind]);
+  return Cesium.Cartesian3.fromDegreesArrayHeights(h);
+}
+function polygonGeom(rings, ctx) {
+  const hierarchy = new Cesium.PolygonHierarchy(rings[0], rings.slice(1).map((r) => new Cesium.PolygonHierarchy(r)));
+  return googleOK
+    ? new Cesium.PolygonGeometry({ polygonHierarchy: hierarchy })
+    : new Cesium.PolygonGeometry({ polygonHierarchy: hierarchy, height: ctx ? 0.5 : LIFT.fill, vertexFormat: Cesium.PerInstanceColorAppearance.FLAT_VERTEX_FORMAT });
+}
+function lineGeom(positions, width) {
+  return googleOK
+    ? new Cesium.GroundPolylineGeometry({ positions, width })
+    : new Cesium.PolylineGeometry({ positions, width, vertexFormat: Cesium.PolylineColorAppearance.VERTEX_FORMAT, arcType: Cesium.ArcType.NONE });
+}
+function fillPrimitive(instances) {
+  const appearance = new Cesium.PerInstanceColorAppearance({ flat: true, translucent: true });
+  return googleOK
+    ? new Cesium.GroundPrimitive({ geometryInstances: instances, classificationType: ON_TILES, releaseGeometryInstances: false, appearance })
+    : new Cesium.Primitive({ geometryInstances: instances, releaseGeometryInstances: false, appearance });
+}
+function linePrimitive(instances) {
+  const appearance = new Cesium.PolylineColorAppearance({ translucent: true });
+  return googleOK
+    ? new Cesium.GroundPolylinePrimitive({ geometryInstances: instances, classificationType: ON_TILES, appearance })
+    : new Cesium.Primitive({ geometryInstances: instances, appearance });
+}
+
+const all = [];
+for (const L of LAYERS) {
+  L.c = Cesium.Color.fromCssColorString(L.color);
+  L.features = [];
+  L.visible = true;
+  const fills = [], edges = [], lines = [];
+  for (const [props, type, coords] of DATA[L.id]) {
+    const ft = { L, props, parts: [], points: [] };
+    ft.num = props[L.idField];
+    ft.title = L.titleField ? props[L.titleField] : `${L.item} n°${ft.num}`;
+    if (type === "P") {
+      ft.kind = "Polygone";
+      for (const poly of coords) {
+        const flat = poly.map(decode);
+        ft.points.push(...Cesium.Cartesian3.fromDegreesArray(flat[0]));
+        const fid = { ft };
+        fills.push(new Cesium.GeometryInstance({
+          id: fid, geometry: polygonGeom(flat.map((r) => toPositions(r, "fill")), L.context),
+          attributes: { color: Cesium.ColorGeometryInstanceAttribute.fromColor(fillColor(ft, "normal")) },
+        }));
+        ft.parts.push(["fill", fid]);
+        // Contours seulement pour les QPV : sur des centaines de petits sites, ils alourdissent et brouillent
+        if (L.context) {
+          const eid = { ft };
+          edges.push(new Cesium.GeometryInstance({
+            id: eid, geometry: lineGeom(toPositions(flat[0], "edge"), 2),
+            attributes: { color: Cesium.ColorGeometryInstanceAttribute.fromColor(edgeColor(ft, "normal")) },
+          }));
+          ft.parts.push(["edge", eid]);
+        }
+      }
+    } else {
+      ft.kind = "Ligne";
+      for (const line of coords) {
+        const flat = decode(line);
+        ft.points.push(...Cesium.Cartesian3.fromDegreesArray(flat));
+        const lid = { ft };
+        lines.push(new Cesium.GeometryInstance({
+          id: lid, geometry: lineGeom(toPositions(flat, "line"), 2.5),
+          attributes: { color: Cesium.ColorGeometryInstanceAttribute.fromColor(edgeColor(ft, "normal")) },
+        }));
+        ft.parts.push(["line", lid]);
+      }
+    }
+    ft.sphere = Cesium.BoundingSphere.fromPoints(ft.points);
+    L.features.push(ft);
+    all.push(ft);
+  }
+  L.prims = {};
+  if (fills.length) L.prims.fill = scene.primitives.add(fillPrimitive(fills));
+  if (edges.length) L.prims.edge = scene.primitives.add(linePrimitive(edges));
+  if (lines.length) L.prims.line = scene.primitives.add(linePrimitive(lines));
+  L.sphere = Cesium.BoundingSphere.fromBoundingSpheres(L.features.map((f) => f.sphere));
+}
+
+// Noms des QPV, affichés de loin
+const qpv = LAYERS.find((l) => l.context);
+qpv.labels = qpv.features.map((ft) => viewer.entities.add({
+  position: Cesium.Cartesian3.fromRadians(...(({ longitude, latitude }) => [longitude, latitude, 0])(Cesium.Cartographic.fromCartesian(ft.sphere.center))),
+  label: {
+    text: String(ft.title).toUpperCase(), font: "600 11px Montserrat, sans-serif", fillColor: Cesium.Color.WHITE,
+    outlineColor: Cesium.Color.fromCssColorString("#111"), outlineWidth: 3, style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+    heightReference: googleOK ? Cesium.HeightReference.RELATIVE_TO_3D_TILE : Cesium.HeightReference.NONE, disableDepthTestDistance: Number.POSITIVE_INFINITY,
+    distanceDisplayCondition: new Cesium.DistanceDisplayCondition(1200, 20000),
+  },
+}));
+
+// ------------------------------------------------------------------ États et couleurs
+let current = null, hovered = null, focus = null;
+function state(ft) {
+  if (ft === current || ft === hovered) return "hot";
+  if (current) return ft.L.context ? "normal" : "dim";
+  if (focus && focus !== ft.L && !ft.L.context) return "dim";
+  return "normal";
+}
+function fillColor(ft, s) {
+  const a = ft.L.context ? { hot: 0.14, normal: 0.04, dim: 0.03 } : { hot: 0.9, normal: 0.62, dim: 0.15 };
+  if (s === "hot" && !ft.L.context) return Cesium.Color.lerp(ft.L.c, Cesium.Color.WHITE, 0.35, new Cesium.Color()).withAlpha(a.hot);
+  return ft.L.c.withAlpha(a[s]);
+}
+function edgeColor(ft, s) {
+  if (s === "hot") return Cesium.Color.WHITE;
+  return ft.L.c.withAlpha(ft.L.context ? (s === "dim" ? 0.4 : 0.85) : s === "dim" ? 0.25 : 0.8);
+}
+const scratch = {};
+function paint(ft) {
+  const s = state(ft);
+  for (const [kind, id] of ft.parts) {
+    const prim = ft.L.prims[kind];
+    if (!prim || !prim.ready) { pending = true; continue; }
+    const attr = prim.getGeometryInstanceAttributes(id);
+    if (attr) attr.color = Cesium.ColorGeometryInstanceAttribute.toValue(kind === "fill" ? fillColor(ft, s) : edgeColor(ft, s), attr.color);
+  }
+  scene.requestRender();
+}
+let pending = false;
+const paintAll = () => { pending = false; all.forEach(paint); refreshLegend(); };
+scene.postRender.addEventListener(() => { if (pending) paintAll(); });
+// tant que les primitives se construisent, on continue de demander des images
+const warm = setInterval(() => { scene.requestRender(); if (!pending && all.every((f) => f.parts.every(([k]) => f.L.prims[k].ready))) clearInterval(warm); }, 250);
+
+// ------------------------------------------------------------------ Légende
+function legendRow(L) {
+  const n = L.features.length;
+  const area = L.areaField ? L.features.reduce((s, f) => s + (Number(f.props[L.areaField]) || 0), 0) : 0;
+  const len = L.lengthField ? L.features.reduce((s, f) => s + (Number(f.props[L.lengthField]) || 0), 0) : 0;
+  const stat = area ? ` · ${nf(1)(area / 10000)} ha` : len ? ` · ${nf(1)(len / 1000)} km` : "";
+  const row = document.createElement("div");
+  row.className = "row";
+  row.innerHTML = `<button class="eye" type="button" aria-pressed="true" title="Afficher / masquer"></button>
+    <button class="pick" type="button"><span class="sw" style="--c:${L.color}" data-kind="${L.features[0]?.kind}"${L.context ? ' data-context=""' : ""}></span>
+    <span class="t"><b>${esc(L.name)}</b><small>${n} ${n > 1 ? "objets" : "objet"}${stat}</small></span></button>`;
+  row.querySelector(".eye").addEventListener("click", (e) => {
+    L.visible = !L.visible;
+    e.currentTarget.setAttribute("aria-pressed", String(L.visible));
+    Object.values(L.prims).forEach((p) => (p.show = L.visible));
+    scene.requestRender();
+    (L.labels ?? []).forEach((l) => (l.show = L.visible));
+    if (current && current.L === L && !L.visible) select(null);
+    row.classList.toggle("off", !L.visible);
+  });
+  row.querySelector(".pick").addEventListener("click", () => {
+    current = null; $("card").hidden = true;
+    focus = focus === L ? null : L;
+    paintAll();
+    fly(focus ? focus.sphere : qpv.sphere, 1.8);
+  });
+  L.row = row;
+  return row;
+}
+$("context").appendChild(legendRow(qpv));
+LAYERS.filter((l) => !l.context).forEach((l) => $("legend").appendChild(legendRow(l)));
+$("count").textContent = `${LAYERS.filter((l) => !l.context).length} livrables`;
+function refreshLegend() { LAYERS.forEach((L) => L.row.classList.toggle("focus", focus === L)); }
+
+$("overview").addEventListener("click", () => { focus = null; select(null); fly(qpv.sphere, 2); });
+$("close").addEventListener("click", () => select(null));
+document.addEventListener("keydown", (e) => e.key === "Escape" && select(null));
+
+// ------------------------------------------------------------------ Fiche
+function select(ft, doFly = false) {
+  const prev = current;
+  current = ft;
+  if (prev !== ft) paintAll();
+  const card = $("card");
+  if (!ft) { card.hidden = true; return; }
+  $("cTitle").textContent = ft.title;
+  $("cType").innerHTML = `<span class="sw" style="--c:${ft.L.color}" data-kind="${ft.kind}"${ft.L.context ? ' data-context=""' : ""}></span>${esc(ft.L.name)}`;
+  const rows = Object.entries(ft.props).map(([k, v]) => {
+    const [label, fmt] = FIELDS[k] ?? [k.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase())];
+    const empty = v === null || v === undefined || v === "";
+    return [label, empty ? EMPTY : fmt ? fmt(v) : v, empty];
+  });
+  rows.push(["Géométrie", ft.kind, false]);
+  $("cFields").innerHTML = rows.map(([k, v, e]) => `<dt>${esc(k)}</dt><dd${e ? ' class="empty"' : ""}>${esc(v)}</dd>`).join("");
+  card.hidden = false;
+  if (doFly) fly(ft.sphere, 1.4);
+}
+function fly(sphere, duration) {
+  // sur grand écran, décale la cible vers l'ouest : le sujet apparaît à droite du panneau
+  const r = Math.max(sphere.radius, 90);
+  const c = Cesium.Cartographic.fromCartesian(sphere.center);
+  if (window.innerWidth > 720) c.longitude -= (r * 0.45) / (6378137 * Math.cos(c.latitude));
+  const s = new Cesium.BoundingSphere(Cesium.Cartographic.toCartesian(c), r);
+  viewer.camera.flyToBoundingSphere(s, { duration, offset: new Cesium.HeadingPitchRange(Cesium.Math.toRadians(10), Cesium.Math.toRadians(-48), s.radius * 2.1) });
+}
+
+// ------------------------------------------------------------------ Souris
+const tip = $("tip");
+const handler = new Cesium.ScreenSpaceEventHandler(scene.canvas);
+function at(p) {
+  // priorité aux livrables sur le contour QPV
+  const top = scene.pick(p);
+  const ft = top && top.id && top.id.ft;
+  if (!ft) return null;
+  if (!ft.L.context) return ft;
+  const hits = scene.drillPick(p, 4).map((o) => o.id && o.id.ft).filter((f) => f && f.L.visible);
+  return hits.find((f) => !f.L.context) ?? hits[0] ?? null;
+}
+handler.setInputAction((ev) => select(at(ev.position)), Cesium.ScreenSpaceEventType.LEFT_CLICK);
+handler.setInputAction((ev) => select(at(ev.position), true), Cesium.ScreenSpaceEventType.LEFT_DOUBLE_CLICK);
+let last = 0;
+handler.setInputAction((ev) => {
+  const now = performance.now();
+  if (now - last < 110) return;
+  last = now;
+  const ft = at(ev.endPosition);
+  if (ft !== hovered) {
+    const prev = hovered;
+    hovered = ft;
+    if (prev) paint(prev);
+    if (ft) paint(ft);
+    scene.canvas.style.cursor = ft ? "pointer" : "";
+  }
+  if (ft) {
+    const L = ft.L, a = L.areaField && ft.props[L.areaField], l = L.lengthField && ft.props[L.lengthField];
+    tip.innerHTML = `<b>${esc(ft.title)}</b>${a ? `<span>${m2(a)}</span>` : l ? `<span>${m(l)}</span>` : ""}`;
+    tip.style.transform = `translate(${ev.endPosition.x + 14}px, ${ev.endPosition.y + 14}px)`;
+    tip.hidden = false;
+  } else tip.hidden = true;
+}, Cesium.ScreenSpaceEventType.MOUSE_MOVE);
+
+// ------------------------------------------------------------------ Arrivée
+viewer.camera.setView({
+  destination: Cesium.Cartesian3.fromDegrees(5.37, 43.2, 14000),
+  orientation: { heading: Cesium.Math.toRadians(5), pitch: Cesium.Math.toRadians(-35), roll: 0 },
+});
+pending = true;
+setTimeout(() => fly(qpv.sphere, 3.2), 700);
+
+</script>
+</body>
+</html>
