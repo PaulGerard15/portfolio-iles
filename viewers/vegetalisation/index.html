@@ -178,9 +178,10 @@ try {
   ortho.saturation = 0.55;
   const n = document.createElement("p");
   n.className = "warn";
-  n.textContent = /429/.test(String(e))
-    ? "Ville 3D Google momentanément indisponible (quota Cesium). Affichage sur orthophoto IGN."
-    : "Ville 3D Google indisponible. Affichage sur orthophoto IGN.";
+  console.error("Tuiles Google :", e);
+  const code = e && e.statusCode;
+  const why = { 401: "jeton refusé", 403: "jeton refusé pour ce site (Allowed URLs)", 404: "asset Google absent du jeton", 429: "quota dépassé" }[code];
+  n.textContent = `Ville 3D Google indisponible${code ? ` (erreur ${code}${why ? " : " + why : ""})` : ""}. Affichage sur orthophoto IGN.`;
   document.getElementById("intro").prepend(n);
 }
 
