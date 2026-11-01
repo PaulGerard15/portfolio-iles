@@ -156,24 +156,37 @@ const viewer = new Cesium.Viewer("cesiumContainer", {
   infoBox: false, selectionIndicator: false,
 });
 const scene = viewer.scene;
+// Rendu à la demande : rien n'est recalculé quand la vue est immobile (portables peu puissants)
+scene.requestRenderMode = true;
+scene.maximumRenderTimeChange = Infinity;
 scene.globe.show = false;
+scene.fog.enabled = false;
 viewer.cesiumWidget.creditContainer.style.opacity = "0.75";
+let googleOK = true;
 try {
   scene.primitives.add(await Cesium.createGooglePhotorealistic3DTileset({ onlyUsingWithGoogleGeocoder: true }));
 } catch (e) {
-  // ville 3D indisponible : on garde les données sur un globe simple et on prévient
+  // Ville 3D indisponible : repli sur l'orthophoto IGN (sans jeton), données posées à plat
+  googleOK = false;
   scene.globe.show = true;
-  scene.globe.baseColor = Cesium.Color.fromCssColorString("#26302a");
+  scene.globe.baseColor = Cesium.Color.fromCssColorString("#1d2328");
+  const ortho = viewer.imageryLayers.addImageryProvider(new Cesium.WebMapTileServiceImageryProvider({
+    url: "https://data.geopf.fr/wmts", layer: "ORTHOIMAGERY.ORTHOPHOTOS", style: "normal", format: "image/jpeg",
+    tileMatrixSetID: "PM", maximumLevel: 19, credit: new Cesium.Credit("Orthophoto © IGN"),
+  }));
+  ortho.brightness = 0.8;
+  ortho.saturation = 0.55;
   const n = document.createElement("p");
   n.className = "warn";
-  n.textContent = /429/.test(String(e)) ? "Ville 3D indisponible : quota du jeton Cesium dépassé (429). Vérifiez le jeton dans viewers/cesium-config.js." : "Ville 3D indisponible : " + (e.message ?? e);
+  n.textContent = /429/.test(String(e))
+    ? "Ville 3D Google momentanément indisponible (quota Cesium). Affichage sur orthophoto IGN."
+    : "Ville 3D Google indisponible. Affichage sur orthophoto IGN.";
   document.getElementById("intro").prepend(n);
 }
-const ON_TILES_OK = scene.globe.show === false;
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
-const ON_TILES = ON_TILES_OK ? Cesium.ClassificationType.CESIUM_3D_TILE : Cesium.ClassificationType.BOTH;
+const ON_TILES = Cesium.ClassificationType.CESIUM_3D_TILE;
 
 // Décodage des coordonnées (entiers en micro-degrés, codés en différences)
 function decode(arr) {
@@ -181,6 +194,37 @@ function decode(arr) {
   let x = 0, y = 0;
   for (let i = 0; i < arr.length; i += 2) { x += arr[i]; y += arr[i + 1]; out[i] = x / 1e6; out[i + 1] = y / 1e6; }
   return out;
+}
+// Hauteur d'affichage en repli (globe plat) : contexte dessous, polygones, puis lignes au-dessus
+const LIFT = { fill: 1.5, edge: 2, line: 3 };
+function toPositions(flat, kind) {
+  if (googleOK) return Cesium.Cartesian3.fromDegreesArray(flat);
+  const h = [];
+  for (let i = 0; i < flat.length; i += 2) h.push(flat[i], flat[i + 1], LIFT[kind]);
+  return Cesium.Cartesian3.fromDegreesArrayHeights(h);
+}
+function polygonGeom(rings, ctx) {
+  const hierarchy = new Cesium.PolygonHierarchy(rings[0], rings.slice(1).map((r) => new Cesium.PolygonHierarchy(r)));
+  return googleOK
+    ? new Cesium.PolygonGeometry({ polygonHierarchy: hierarchy })
+    : new Cesium.PolygonGeometry({ polygonHierarchy: hierarchy, height: ctx ? 0.5 : LIFT.fill, vertexFormat: Cesium.PerInstanceColorAppearance.FLAT_VERTEX_FORMAT });
+}
+function lineGeom(positions, width) {
+  return googleOK
+    ? new Cesium.GroundPolylineGeometry({ positions, width })
+    : new Cesium.PolylineGeometry({ positions, width, vertexFormat: Cesium.PolylineColorAppearance.VERTEX_FORMAT, arcType: Cesium.ArcType.NONE });
+}
+function fillPrimitive(instances) {
+  const appearance = new Cesium.PerInstanceColorAppearance({ flat: true, translucent: true });
+  return googleOK
+    ? new Cesium.GroundPrimitive({ geometryInstances: instances, classificationType: ON_TILES, releaseGeometryInstances: false, appearance })
+    : new Cesium.Primitive({ geometryInstances: instances, releaseGeometryInstances: false, appearance });
+}
+function linePrimitive(instances) {
+  const appearance = new Cesium.PolylineColorAppearance({ translucent: true });
+  return googleOK
+    ? new Cesium.GroundPolylinePrimitive({ geometryInstances: instances, classificationType: ON_TILES, appearance })
+    : new Cesium.Primitive({ geometryInstances: instances, appearance });
 }
 
 const all = [];
@@ -196,30 +240,32 @@ for (const L of LAYERS) {
     if (type === "P") {
       ft.kind = "Polygone";
       for (const poly of coords) {
-        const rings = poly.map((r) => Cesium.Cartesian3.fromDegreesArray(decode(r)));
-        ft.points.push(...rings[0]);
-        const fid = { ft }, eid = { ft };
+        const flat = poly.map(decode);
+        ft.points.push(...Cesium.Cartesian3.fromDegreesArray(flat[0]));
+        const fid = { ft };
         fills.push(new Cesium.GeometryInstance({
-          id: fid,
-          geometry: new Cesium.PolygonGeometry({ polygonHierarchy: new Cesium.PolygonHierarchy(rings[0], rings.slice(1).map((h) => new Cesium.PolygonHierarchy(h))) }),
+          id: fid, geometry: polygonGeom(flat.map((r) => toPositions(r, "fill")), L.context),
           attributes: { color: Cesium.ColorGeometryInstanceAttribute.fromColor(fillColor(ft, "normal")) },
         }));
-        edges.push(new Cesium.GeometryInstance({
-          id: eid,
-          geometry: new Cesium.GroundPolylineGeometry({ positions: rings[0], width: L.context ? 2.5 : 2 }),
-          attributes: { color: Cesium.ColorGeometryInstanceAttribute.fromColor(edgeColor(ft, "normal")) },
-        }));
-        ft.parts.push(["fill", fid], ["edge", eid]);
+        ft.parts.push(["fill", fid]);
+        // Contours seulement pour les QPV : sur des centaines de petits sites, ils alourdissent et brouillent
+        if (L.context) {
+          const eid = { ft };
+          edges.push(new Cesium.GeometryInstance({
+            id: eid, geometry: lineGeom(toPositions(flat[0], "edge"), 2),
+            attributes: { color: Cesium.ColorGeometryInstanceAttribute.fromColor(edgeColor(ft, "normal")) },
+          }));
+          ft.parts.push(["edge", eid]);
+        }
       }
     } else {
       ft.kind = "Ligne";
       for (const line of coords) {
-        const pos = Cesium.Cartesian3.fromDegreesArray(decode(line));
-        ft.points.push(...pos);
+        const flat = decode(line);
+        ft.points.push(...Cesium.Cartesian3.fromDegreesArray(flat));
         const lid = { ft };
         lines.push(new Cesium.GeometryInstance({
-          id: lid,
-          geometry: new Cesium.GroundPolylineGeometry({ positions: pos, width: 4 }),
+          id: lid, geometry: lineGeom(toPositions(flat, "line"), 2.5),
           attributes: { color: Cesium.ColorGeometryInstanceAttribute.fromColor(edgeColor(ft, "normal")) },
         }));
         ft.parts.push(["line", lid]);
@@ -230,16 +276,9 @@ for (const L of LAYERS) {
     all.push(ft);
   }
   L.prims = {};
-  if (fills.length) L.prims.fill = scene.primitives.add(new Cesium.GroundPrimitive({
-    geometryInstances: fills, classificationType: ON_TILES, releaseGeometryInstances: false,
-    appearance: new Cesium.PerInstanceColorAppearance({ flat: true, translucent: true }),
-  }));
-  if (edges.length) L.prims.edge = scene.primitives.add(new Cesium.GroundPolylinePrimitive({
-    geometryInstances: edges, classificationType: ON_TILES, appearance: new Cesium.PolylineColorAppearance(),
-  }));
-  if (lines.length) L.prims.line = scene.primitives.add(new Cesium.GroundPolylinePrimitive({
-    geometryInstances: lines, classificationType: ON_TILES, appearance: new Cesium.PolylineColorAppearance(),
-  }));
+  if (fills.length) L.prims.fill = scene.primitives.add(fillPrimitive(fills));
+  if (edges.length) L.prims.edge = scene.primitives.add(linePrimitive(edges));
+  if (lines.length) L.prims.line = scene.primitives.add(linePrimitive(lines));
   L.sphere = Cesium.BoundingSphere.fromBoundingSpheres(L.features.map((f) => f.sphere));
 }
 
@@ -250,7 +289,7 @@ qpv.labels = qpv.features.map((ft) => viewer.entities.add({
   label: {
     text: String(ft.title).toUpperCase(), font: "600 11px Montserrat, sans-serif", fillColor: Cesium.Color.WHITE,
     outlineColor: Cesium.Color.fromCssColorString("#111"), outlineWidth: 3, style: Cesium.LabelStyle.FILL_AND_OUTLINE,
-    heightReference: ON_TILES_OK ? Cesium.HeightReference.RELATIVE_TO_3D_TILE : Cesium.HeightReference.CLAMP_TO_GROUND, disableDepthTestDistance: Number.POSITIVE_INFINITY,
+    heightReference: googleOK ? Cesium.HeightReference.RELATIVE_TO_3D_TILE : Cesium.HeightReference.NONE, disableDepthTestDistance: Number.POSITIVE_INFINITY,
     distanceDisplayCondition: new Cesium.DistanceDisplayCondition(1200, 20000),
   },
 }));
@@ -264,12 +303,13 @@ function state(ft) {
   return "normal";
 }
 function fillColor(ft, s) {
-  const a = ft.L.context ? { hot: 0.16, normal: 0.05, dim: 0.03 } : { hot: 0.72, normal: 0.45, dim: 0.12 };
+  const a = ft.L.context ? { hot: 0.14, normal: 0.04, dim: 0.03 } : { hot: 0.9, normal: 0.62, dim: 0.15 };
+  if (s === "hot" && !ft.L.context) return Cesium.Color.lerp(ft.L.c, Cesium.Color.WHITE, 0.35, new Cesium.Color()).withAlpha(a.hot);
   return ft.L.c.withAlpha(a[s]);
 }
 function edgeColor(ft, s) {
   if (s === "hot") return Cesium.Color.WHITE;
-  return ft.L.c.withAlpha(ft.L.context ? (s === "dim" ? 0.4 : 0.85) : s === "dim" ? 0.3 : 1);
+  return ft.L.c.withAlpha(ft.L.context ? (s === "dim" ? 0.4 : 0.85) : s === "dim" ? 0.25 : 0.8);
 }
 const scratch = {};
 function paint(ft) {
@@ -280,10 +320,13 @@ function paint(ft) {
     const attr = prim.getGeometryInstanceAttributes(id);
     if (attr) attr.color = Cesium.ColorGeometryInstanceAttribute.toValue(kind === "fill" ? fillColor(ft, s) : edgeColor(ft, s), attr.color);
   }
+  scene.requestRender();
 }
 let pending = false;
 const paintAll = () => { pending = false; all.forEach(paint); refreshLegend(); };
 scene.postRender.addEventListener(() => { if (pending) paintAll(); });
+// tant que les primitives se construisent, on continue de demander des images
+const warm = setInterval(() => { scene.requestRender(); if (!pending && all.every((f) => f.parts.every(([k]) => f.L.prims[k].ready))) clearInterval(warm); }, 250);
 
 // ------------------------------------------------------------------ Légende
 function legendRow(L) {
@@ -300,6 +343,7 @@ function legendRow(L) {
     L.visible = !L.visible;
     e.currentTarget.setAttribute("aria-pressed", String(L.visible));
     Object.values(L.prims).forEach((p) => (p.show = L.visible));
+    scene.requestRender();
     (L.labels ?? []).forEach((l) => (l.show = L.visible));
     if (current && current.L === L && !L.visible) select(null);
     row.classList.toggle("off", !L.visible);
@@ -347,7 +391,7 @@ function fly(sphere, duration) {
   const c = Cesium.Cartographic.fromCartesian(sphere.center);
   if (window.innerWidth > 720) c.longitude -= (r * 0.45) / (6378137 * Math.cos(c.latitude));
   const s = new Cesium.BoundingSphere(Cesium.Cartographic.toCartesian(c), r);
-  viewer.camera.flyToBoundingSphere(s, { duration, offset: new Cesium.HeadingPitchRange(Cesium.Math.toRadians(10), Cesium.Math.toRadians(-48), s.radius * 2.6) });
+  viewer.camera.flyToBoundingSphere(s, { duration, offset: new Cesium.HeadingPitchRange(Cesium.Math.toRadians(10), Cesium.Math.toRadians(-48), s.radius * 2.1) });
 }
 
 // ------------------------------------------------------------------ Souris
@@ -367,7 +411,7 @@ handler.setInputAction((ev) => select(at(ev.position), true), Cesium.ScreenSpace
 let last = 0;
 handler.setInputAction((ev) => {
   const now = performance.now();
-  if (now - last < 50) return;
+  if (now - last < 110) return;
   last = now;
   const ft = at(ev.endPosition);
   if (ft !== hovered) {
