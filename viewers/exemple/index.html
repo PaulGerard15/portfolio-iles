@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Visionneuse — exemple</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #1d2730; color: #eef1f3; font: 15px/1.5 system-ui, sans-serif; }
+  .wrap { height: 100%; display: grid; place-content: center; text-align: center; gap: 14px; padding: 24px; }
+  .cube { width: 90px; height: 90px; margin: 0 auto; transform-style: preserve-3d; animation: spin 8s linear infinite; position: relative; }
+  .cube i { position: absolute; inset: 0; border: 2px solid #f49440; background: rgb(244 148 64 / 0.08); }
+  .cube i:nth-child(1) { transform: translateZ(45px); } .cube i:nth-child(2) { transform: rotateY(90deg) translateZ(45px); }
+  .cube i:nth-child(3) { transform: rotateY(180deg) translateZ(45px); } .cube i:nth-child(4) { transform: rotateY(-90deg) translateZ(45px); }
+  .cube i:nth-child(5) { transform: rotateX(90deg) translateZ(45px); } .cube i:nth-child(6) { transform: rotateX(-90deg) translateZ(45px); }
+  @keyframes spin { to { transform: rotateX(-20deg) rotateY(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .cube { animation: none; transform: rotateX(-20deg) rotateY(30deg); } }
+  code { background: rgb(255 255 255 / 0.08); padding: 2px 6px; border-radius: 4px; }
+  .tag { display: inline-block; padding: 3px 10px; border-radius: 999px; background: #e9d6b4; color: #4a3313; font-weight: 600; font-size: 13px; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="cube"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+    <span class="tag">Données de démonstration · Demo data</span>
+    <p>Emplacement d'une visualisation intégrée (modèle 3D, Gaussian splatting, nuage de points).<br>
+    Remplacez l'URL dans <code>src/config/projects.ts</code> par le lien d'intégration de votre plateforme.</p>
+    <p lang="en">Placeholder for an embedded view. Replace the URL with your platform's embed link.</p>
+  </div>
+</body>
+</html>

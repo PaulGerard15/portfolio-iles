@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Marseille — rayon X</title>
+<!--
+  Maquette « rayon X » : ville Google photoréaliste + zone découpée qui révèle une couche de données.
+  Page intégrée au portfolio (fiche « Marseille, vue et mesurée », île Cesium).
+  Réglages (jeton, asset LiDAR) : config.js, à côté de ce fichier.
+-->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/cesium@1.146.0/Build/Cesium/Widgets/widgets.css">
+<script src="https://cdn.jsdelivr.net/npm/cesium@1.146.0/Build/Cesium/Cesium.js"></script>
+<style>
+  :root {
+    --paper: #151a21; --surface: #1b222b; --ink: #eef1f4; --ink-2: #b9c2cc; --ink-3: #96a1ac;
+    --line: rgb(255 255 255 / 0.12); --glass: rgb(21 26 33 / 0.78); --accent: #f0b45a;
+    --font: 'Montserrat', system-ui, sans-serif;
+  }
+  html, body { margin: 0; height: 100%; background: var(--paper); color: var(--ink); font-family: var(--font); }
+  #globe { position: fixed; inset: 0; }
+  .cesium-viewer-bottom { opacity: 0.85; }
+  .ui { position: fixed; z-index: 5; }
+  .top { top: 14px; left: 16px; right: 16px; display: flex; align-items: center; gap: 10px; pointer-events: none; }
+  .brand { display: flex; align-items: center; gap: 10px; pointer-events: auto; }
+  .brand svg { width: 28px; height: 28px; color: var(--ink); }
+  .brand b { font-size: 14px; letter-spacing: 0.08em; text-transform: uppercase; }
+  .brand span { display: block; font-size: 11.5px; color: var(--ink-2); font-weight: 500; }
+  .panel {
+    left: 16px; bottom: 26px; width: min(340px, calc(100vw - 32px));
+    background: var(--glass); backdrop-filter: blur(8px); border: 1px solid var(--line);
+    border-radius: 14px; padding: 16px 16px 14px; display: grid; gap: 12px;
+  }
+  h1 { margin: 0; font-size: 17px; font-weight: 700; }
+  p { margin: 0; font-size: 13px; line-height: 1.5; color: var(--ink-2); }
+  .seg { display: flex; padding: 3px; border-radius: 999px; background: var(--surface); border: 1px solid var(--line); }
+  .seg button {
+    flex: 1; border: 0; background: none; color: var(--ink-2); font: 600 13px var(--font);
+    padding: 8px 10px; border-radius: 999px; cursor: pointer;
+  }
+  .seg button[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
+  label { display: grid; gap: 6px; font-size: 12px; font-weight: 600; color: var(--ink-2); }
+  input[type=range] { width: 100%; accent-color: var(--accent); }
+  .legend { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--ink-3); }
+  .ramp { flex: 1; height: 6px; border-radius: 3px; background: linear-gradient(90deg, #3f7fd0, #52c27a, #f6c445, #e25a4a); }
+  .note { font-size: 11.5px; color: var(--ink-3); border-top: 1px solid var(--line); padding-top: 10px; }
+  .note strong { color: var(--accent); font-weight: 600; }
+  .status { position: fixed; inset: 0; display: grid; place-items: center; z-index: 10; background: var(--paper); font-size: 14px; color: var(--ink-2); transition: opacity .5s; }
+  .status.hidden { opacity: 0; pointer-events: none; }
+  .status .err { max-width: 460px; padding: 18px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); color: var(--ink); }
+  .splitter { position: fixed; top: 0; bottom: 0; width: 2px; background: var(--ink); z-index: 4; cursor: ew-resize; display: none; }
+  .splitter::after { content: '⇆'; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 34px; height: 34px; border-radius: 50%; background: var(--ink); color: var(--paper); display: grid; place-items: center; font-size: 16px; }
+  .tag { position: fixed; top: 64px; z-index: 4; padding: 4px 10px; border-radius: 999px; background: var(--glass); border: 1px solid var(--line); font-size: 12px; font-weight: 600; display: none; }
+  @media (max-width: 600px) { .panel { bottom: 34px; } .brand span { display: none; } }
+</style>
+</head>
+<body>
+<div id="globe"></div>
+
+<header class="ui top">
+  <div class="brand">
+    <svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="13.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M16 2.4v3.2M16 26.4v3.2M2.4 16h3.2M26.4 16h3.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M16 7.2 19.2 16h-6.4Z" fill="currentColor"/><path d="M12.8 16h6.4L16 24.8Z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>
+    <div><b>Paul Gerard</b><span>Démonstrateur CesiumJS · Marseille</span></div>
+  </div>
+</header>
+
+<section class="ui panel" aria-label="Commandes">
+  <h1>Marseille, vue et mesurée</h1>
+  <p id="intro">Ville photoréaliste (Google). Une zone découpée révèle la donnée mesurée en dessous. Cliquez sur la ville pour déplacer la zone.</p>
+  <div class="seg" role="group" aria-label="Mode">
+    <button type="button" data-mode="hole" aria-pressed="true">Rayon X</button>
+    <button type="button" data-mode="swipe" aria-pressed="false">Balayage</button>
+    <button type="button" data-mode="google" aria-pressed="false">Google seul</button>
+  </div>
+  <label id="radiusWrap">Rayon de la zone : <span id="radiusVal">180 m</span>
+    <input id="radius" type="range" min="60" max="450" step="10" value="180">
+  </label>
+  <div class="legend"><span>Bas</span><span class="ramp"></span><span>Haut</span></div>
+  <p class="note" id="dataNote"></p>
+</section>
+
+<div class="splitter" id="splitter" aria-hidden="true"></div>
+<span class="tag" id="tagL">Google 3D</span>
+<span class="tag" id="tagR">Données</span>
+<div class="status" id="status">Chargement de Marseille…</div>
+
+<script src="../cesium-config.js"></script>
+<script src="config.js"></script>
+<script>
+/* ---------------- Réglages (config.js) ---------------- */
+const CFG = window.RAYON_X_CONFIG || {};
+const ION_TOKEN = CFG.ionToken || '';
+
+/*
+  Couche révélée dans la zone :
+  - LIDAR_ASSET_ID = null  → bâtiments OSM de Cesium colorés par hauteur (en attendant le LiDAR)
+  - LIDAR_ASSET_ID = 1234567 (n° d'asset ion de votre dalle LiDAR HD) → nuage de points coloré par classe
+  LIDAR_HEIGHT_OFFSET : correction altitude NGF-IGN69 → ellipsoïde (~ +50 m à Marseille, à affiner avec la grille IGN).
+  Mettre 0 si la correction a déjà été appliquée avant l'envoi.
+*/
+const LIDAR_ASSET_ID = CFG.lidarAssetId ?? null;
+const LIDAR_HEIGHT_OFFSET = CFG.lidarHeightOffset ?? 50;
+
+const CENTER = { lon: 5.3745, lat: 43.2951 }; // Vieux-Port
+
+/* ---------------- Démarrage ---------------- */
+const $ = (id) => document.getElementById(id);
+const status = $('status');
+
+function fail(msg) {
+  status.classList.remove('hidden');
+  status.innerHTML = `<div class="err"><strong>La scène n'a pas pu se charger.</strong><p style="margin-top:8px">${msg}</p>
+  <p style="margin-top:8px">Vérifiez la connexion et le jeton Cesium ion (config.js).</p></div>`;
+}
+
+(async () => {
+  if (!window.Cesium) return fail('CesiumJS introuvable (CDN bloqué ?).');
+  if (!ION_TOKEN) return fail('Jeton Cesium ion manquant : renseignez ionToken dans config.js.');
+  Cesium.Ion.defaultAccessToken = ION_TOKEN;
+
+  const viewer = new Cesium.Viewer('globe', {
+    baseLayer: false, geocoder: false, homeButton: false, sceneModePicker: false, baseLayerPicker: false,
+    navigationHelpButton: false, animation: false, timeline: false, fullscreenButton: false,
+    infoBox: false, selectionIndicator: false,
+  });
+  const scene = viewer.scene;
+  // Fond sombre visible au fond de la zone découpée
+  scene.globe.baseColor = Cesium.Color.fromCssColorString('#10151b');
+  scene.globe.showGroundAtmosphere = false;
+  scene.skyAtmosphere.show = true;
+
+  let google, data;
+  try {
+    google = await Cesium.createGooglePhotorealistic3DTileset({ onlyUsingWithGoogleGeocoder: true });
+    scene.primitives.add(google);
+  } catch (e) {
+    return fail('Tuiles Google indisponibles : ' + (e.message || e));
+  }
+
+  try {
+    if (LIDAR_ASSET_ID) {
+      data = await Cesium.Cesium3DTileset.fromIonAssetId(LIDAR_ASSET_ID);
+      // Correction verticale : on remonte le nuage le long de la normale locale
+      const c = Cesium.Cartesian3.fromDegrees(CENTER.lon, CENTER.lat, 0);
+      const up = scene.globe.ellipsoid.geodeticSurfaceNormal(c, new Cesium.Cartesian3());
+      data.modelMatrix = Cesium.Matrix4.fromTranslation(Cesium.Cartesian3.multiplyByScalar(up, LIDAR_HEIGHT_OFFSET, up));
+      data.style = new Cesium.Cesium3DTileStyle({
+        pointSize: 3,
+        color: {
+          conditions: [
+            ['${Classification} === 2', "color('#b9aa8f')"],                                   // sol
+            ['${Classification} >= 3 && ${Classification} <= 5', "color('#52c27a')"],          // végétation
+            ['${Classification} === 6', "color('#e2705a')"],                                   // bâtiment
+            ['${Classification} === 9', "color('#4cc3d4')"],                                   // eau
+            ['true', "color('#8a94a0')"],
+          ],
+        },
+      });
+      $('dataNote').innerHTML = '<strong>LiDAR HD IGN</strong> · couleurs par classe : sol, végétation, bâti, eau. © IGN, Licence Ouverte 2.0.';
+      document.querySelector('.legend').style.display = 'none';
+    } else {
+      data = await Cesium.createOsmBuildingsAsync();
+      data.style = new Cesium.Cesium3DTileStyle({
+        color: {
+          conditions: [
+            ["Number(${feature['cesium#estimatedHeight']}) >= 40", "color('#e25a4a')"],
+            ["Number(${feature['cesium#estimatedHeight']}) >= 22", "color('#f6c445')"],
+            ["Number(${feature['cesium#estimatedHeight']}) >= 10", "color('#52c27a')"],
+            ['true', "color('#3f7fd0')"],
+          ],
+        },
+      });
+      $('dataNote').innerHTML = '<strong>Maquette :</strong> bâtiments OpenStreetMap colorés par hauteur, en attendant votre dalle LiDAR HD (réglage LIDAR_ASSET_ID).';
+    }
+    scene.primitives.add(data);
+  } catch (e) {
+    return fail('Couche de données indisponible : ' + (e.message || e));
+  }
+
+  /* ---------------- Zone découpée (rayon X) ---------------- */
+  let center = Cesium.Cartographic.fromDegrees(CENTER.lon, CENTER.lat);
+  let radius = 180;
+
+  function circle(cart, r, n = 48) {
+    const pts = [];
+    const latR = r / 6378137, lonR = r / (6378137 * Math.cos(cart.latitude));
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2;
+      pts.push(Cesium.Cartesian3.fromRadians(cart.longitude + Math.cos(a) * lonR, cart.latitude + Math.sin(a) * latR, 0));
+    }
+    return pts;
+  }
+
+  function applyHole() {
+    const poly = () => new Cesium.ClippingPolygon({ positions: circle(center, radius) });
+    // Google : on retire l'intérieur du cercle
+    google.clippingPolygons = new Cesium.ClippingPolygonCollection({ polygons: [poly()] });
+    // Données : on ne garde que l'intérieur (inverse)
+    data.clippingPolygons = new Cesium.ClippingPolygonCollection({ polygons: [poly()], inverse: true });
+  }
+  function clearHole() {
+    google.clippingPolygons = undefined;
+    data.clippingPolygons = undefined;
+  }
+
+  /* ---------------- Modes ---------------- */
+  const splitter = $('splitter');
+  let mode = 'hole';
+  function setMode(m) {
+    mode = m;
+    document.querySelectorAll('[data-mode]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.mode === m)));
+    $('radiusWrap').style.display = m === 'hole' ? '' : 'none';
+    const swipe = m === 'swipe';
+    splitter.style.display = $('tagL').style.display = $('tagR').style.display = swipe ? 'block' : 'none';
+    google.splitDirection = swipe ? Cesium.SplitDirection.LEFT : Cesium.SplitDirection.NONE;
+    data.splitDirection = swipe ? Cesium.SplitDirection.RIGHT : Cesium.SplitDirection.NONE;
+    data.show = m !== 'google';
+    if (m === 'hole') applyHole(); else clearHole();
+    placeSplitter();
+  }
+  document.querySelectorAll('[data-mode]').forEach((b) => b.addEventListener('click', () => setMode(b.dataset.mode)));
+
+  $('radius').addEventListener('input', (e) => {
+    radius = Number(e.target.value);
+    $('radiusVal').textContent = radius + ' m';
+    if (mode === 'hole') applyHole();
+  });
+
+  // Clic sur la ville : déplace la zone
+  new Cesium.ScreenSpaceEventHandler(scene.canvas).setInputAction((ev) => {
+    if (mode !== 'hole') return;
+    const p = scene.pickPosition(ev.position);
+    if (!Cesium.defined(p)) return;
+    center = Cesium.Cartographic.fromCartesian(p);
+    applyHole();
+  }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+
+  // Balayage : poignée déplaçable
+  let splitX = 0.5;
+  function placeSplitter() {
+    scene.splitPosition = splitX;
+    splitter.style.left = splitX * 100 + '%';
+    $('tagL').style.left = `calc(${splitX * 100}% - 110px)`;
+    $('tagR').style.left = `calc(${splitX * 100}% + 12px)`;
+  }
+  let dragging = false;
+  splitter.addEventListener('pointerdown', (e) => { dragging = true; splitter.setPointerCapture(e.pointerId); });
+  splitter.addEventListener('pointermove', (e) => {
+    if (!dragging) return;
+    splitX = Math.min(0.95, Math.max(0.05, e.clientX / window.innerWidth));
+    placeSplitter();
+  });
+  splitter.addEventListener('pointerup', () => (dragging = false));
+
+  /* ---------------- Caméra ---------------- */
+  viewer.camera.setView({
+    destination: Cesium.Cartesian3.fromDegrees(CENTER.lon - 0.006, CENTER.lat - 0.0105, 650),
+    orientation: { heading: Cesium.Math.toRadians(20), pitch: Cesium.Math.toRadians(-32), roll: 0 },
+  });
+
+  setMode('hole');
+  status.classList.add('hidden');
+})().catch((e) => fail(e.message || String(e)));
+</script>
+</body>
+</html>

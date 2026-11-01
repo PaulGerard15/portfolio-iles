@@ -1,0 +1,18 @@
+{
+  "type": "FeatureCollection",
+  "name": "emprise-demo",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "nom": "Emprise fictive — données de démonstration",
+        "statut": "demo",
+        "note": "Polygone arbitraire, ne correspond à aucune mission."
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[2.418, 46.536], [2.446, 46.536], [2.446, 46.552], [2.418, 46.552], [2.418, 46.536]]]
+      }
+    }
+  ]
+}
